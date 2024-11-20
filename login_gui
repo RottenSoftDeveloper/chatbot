@@ -1,0 +1,135 @@
+mport tkinter as tk
+from tkinter import messagebox
+from tkinter import scrolledtext
+from sharepoint_utils import authenticate_sharepoint, read_documents_from_sharepoint, create_faiss_index, query_application
+from dotenv import load_dotenv
+import os
+
+
+# Load environment variables
+load_dotenv()
+
+
+class LoginApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Login")
+        self.root.geometry("400x200")
+        self.setup_ui()
+
+
+    def setup_ui(self):
+        # Username field
+        self.username_label = tk.Label(self.root, text="SharePoint Username:")
+        self.username_label.pack(pady=5)
+
+
+        self.username_entry = tk.Entry(self.root, width=50)
+        self.username_entry.pack(pady=5)
+
+
+        # Password field
+        self.password_label = tk.Label(self.root, text="SharePoint Password:")
+        self.password_label.pack(pady=5)
+
+
+        self.password_entry = tk.Entry(self.root, show="*", width=50)
+        self.password_entry.pack(pady=5)
+
+
+        # Submit button
+        self.submit_button = tk.Button(self.root, text="Submit", command=self.login)
+        self.submit_button.pack(pady=10)
+
+
+        # Bind Enter key to login method
+        self.root.bind('<Return>', self.on_enter_key)
+
+
+    def on_enter_key(self, event):
+        self.login()
+
+
+    def login(self):
+        username = self.username_entry.get()
+        password = self.password_entry.get()
+
+
+        if not username or not password:
+            messagebox.showerror("Input Error", "Both username and password are required.")
+            return
+
+
+        # Authenticate and transition to chat
+        self.authenticate_and_load_chat(username, password)
+
+
+    def authenticate_and_load_chat(self, username, password):
+        site_url = "https://securityval.sharepoint.com/sites/SecOps"
+        folder_path = "/sites/SecOps/Shared Documents/INDEXbot"
+        
+        self.ctx = authenticate_sharepoint(site_url, username, password)
+        if self.ctx:
+            text = read_documents_from_sharepoint(self.ctx, folder_path)
+            if text:
+                self.docsearch = create_faiss_index(text)
+                self.open_chat_ui()
+            else:
+                messagebox.showerror("Error", "No text found in documents.")
+                self.root.quit()
+        else:
+            messagebox.showerror("Error", "Failed to authenticate to SharePoint.")
+            self.root.quit()
+
+
+    def open_chat_ui(self):
+        self.root.destroy()
+        chat_root = tk.Tk()
+        chat_app = ChatApp(chat_root, self.docsearch)
+        chat_root.mainloop()
+
+
+
+
+class ChatApp:
+    def __init__(self, root, docsearch):
+        self.root = root
+        self.root.title("SecValMSP Chatbot")
+        self.root.geometry("600x400")
+
+
+        self.chat_area = scrolledtext.ScrolledText(root, wrap=tk.WORD, state=tk.DISABLED)
+        self.chat_area.pack(pady=5, fill=tk.BOTH, expand=True)
+
+
+        self.message_entry = tk.Entry(root, width=80)
+        self.message_entry.pack(pady=5)
+
+
+        self.send_button = tk.Button(root, text="Send", command=self.send_message)
+        self.send_button.pack(pady=5)
+
+
+        self.docsearch = docsearch
+
+
+    def send_message(self):
+        query = self.message_entry.get()
+        if query:
+            self.chat_area.configure(state=tk.NORMAL)
+            self.chat_area.insert(tk.END, f"You: {query}\n")
+            self.message_entry.delete(0, tk.END)
+
+
+            response = query_application(self.docsearch, query)
+            self.chat_area.insert(tk.END, f"Bot: {response}\n")
+            self.chat_area.configure(state=tk.DISABLED)
+            self.chat_area.yview(tk.END)
+        else:
+            messagebox.showwarning("Input Error", "Message cannot be empty.")
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = LoginApp(root)
+    root.mainloop()
